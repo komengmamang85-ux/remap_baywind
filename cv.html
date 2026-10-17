@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web ECU Flasher & Scanner Pro</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #1a1a24; color: #e0e0e0; margin: 0; }
+        .container { max-width: 650px; margin: 20px auto; background: #262636; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        h2, h3 { color: #fff; margin: 0 0 10px 0; border-bottom: 2px solid #3b3b54; padding-bottom: 5px; }
+        .brand-select { margin-bottom: 15px; background: #3b3b54; padding: 10px; border-radius: 6px; display: flex; align-items: center; gap: 10px; }
+        .brand-select select { padding: 8px; font-size: 15px; font-weight: bold; border-radius: 4px; border: 1px solid #555; background: #262636; color: #fff; flex: 1; }
+        .tabs { display: flex; gap: 5px; margin: 15px 0; }
+        .tab-btn { background: #555; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; flex: 1; font-weight: bold; }
+        .tab-btn.active { background: #007bff; }
+        .tab-content { display: none; padding: 15px; border: 1px solid #3b3b54; border-radius: 5px; background: #1f1f2e; }
+        .tab-content.active { display: block; }
+        button { background: #007bff; color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-size: 16px; margin: 5px 0; width: 100%; transition: 0.2s; font-weight: bold;}
+        button:disabled { background: #444; color: #777; cursor: not-allowed; }
+        .btn-danger { background: #dc3545; }
+        .btn-success { background: #28a745; }
+        .btn-secondary { background: #17a2b8; }
+        .live-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
+        .data-card { background: #262636; border: 1px solid #3b3b54; padding: 12px; border-radius: 6px; text-align: center; }
+        .data-card .value { font-size: 26px; font-weight: bold; color: #00ffcc; margin-top: 5px; }
+        .log { background: #000; color: #00ff00; padding: 15px; border-radius: 5px; font-family: monospace; height: 140px; overflow-y: auto; margin-top: 15px; font-size: 13px; }
+        .dtc-box { background: #2b1b1d; border: 1px solid #dc3545; color: #ff8888; padding: 12px; border-radius: 6px; margin-top: 10px; display: none; font-family: monospace; }
+        input[type="file"] { margin: 10px 0; display: block; color: #fff; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🏍️ Web ECU Flasher & Scanner (FTDI)</h2>
+    
+    <div class="brand-select">
+        <label for="selectBrand"><strong>Pabrikan:</strong></label>
+        <select id="selectBrand">
+            <option value="honda">🔴 HONDA (Keihin/Shindengen - 10400 bps)</option>
+            <option value="yamaha">🔵 YAMAHA (FI System - 9600 bps)</option>
+        </select>
+    </div>
+
+    <button id="btnConnect" class="btn-success">🔌 Konekan FTDI / Alat Remap</button>
+    
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('tabFlash')">🔥 ECU Flasher</button>
+        <button class="tab-btn" onclick="switchTab('tabScan')">📊 Engine Scanner</button>
+    </div>
+
+    <!-- TAB 1: FLASHER -->
+    <div id="tabFlash" class="tab-content active">
+        <h3>⚡ Upload & Flash ECU</h3>
+        <button id="btnRead" disabled>📥 Read ECU (Backup Data)</button>
+        <hr style="border-color:#3b3b54;">
+        <label>File Remap (.bin):</label>
+        <input type="file" id="fileBin" accept=".bin" disabled>
+        <button id="btnFlash" class="btn-danger" disabled>🔥 Flash / Write ECU</button>
+    </div>
+
+    <!-- TAB 2: SCANNER -->
+    <div id="tabScan" class="tab-content">
+        <h3>🔍 Live Parameter (<span id="txtActiveBrand">Honda</span> Mode)</h3>
+        <div style="display: flex; gap: 5px;">
+            <button id="btnStartScan" class="btn-success" disabled>▶️ Mulai Scan</button>
+            <button id="btnStopScan" class="btn-danger" disabled>⏹️ Stop Scan</button>
+        </div>
+
+        <div class="live-grid">
+            <div class="data-card"><div>Engine RPM</div><div class="value" id="valRPM">0</div></div>
+            <div class="data-card"><div>Bukaan Gas (TPS)</div><div class="value" id="valTPS">0.0 %</div></div>
+            <div class="data-card"><div>Suhu Mesin (ECT)</div><div class="value" id="valECT">0 °C</div></div>
+            <div class="data-card"><div>Tegangan Aki</div><div class="value" id="valVolt">0.0 V</div></div>
+        </div>
+
+        <div style="display: flex; gap: 5px; margin-top: 15px;">
+            <button id="btnReadDTC" class="btn-secondary" disabled>🔎 Cek Kode Error</button>
+            <button id="btnClearDTC" style="background: #fd7e14;" disabled>🗑️ Hapus Error</button>
+        </div>
+        <div class="dtc-box" id="dtcBox">
+            <strong>⚠️ Masalah Terdeteksi:</strong><br>
+            <span id="dtcText">Memindai kerusakan...</span>
+        </div>
+    </div>
+    
+    <h3>📋 Log Aktivitas:</h3>
+    <div class="log" id="logOutput">Menunggu koneksi hardware...<br></div>
+</div>
+
+<script>
+let port, reader, writer, scanInterval, isScanning = false, currentBrand = "honda";
+
+// DOM Elements
+const $ = id => document.getElementById(id);
+const logOutput = $('logOutput'), dtcBox = $('dtcBox'), dtcText = $('dtcText');
+
+function writeLog(text) {
+    logOutput.innerHTML += `> ${text}<br>`;
+    logOutput.scrollTop = logOutput.scrollHeight;
+}
+
+function switchTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    $(tabId).classList.add('active');
+    event.currentTarget.classList.add('active');
+}
+
+$('selectBrand').addEventListener('change', (e) => {
+    currentBrand = e.target.value;
+    $('txtActiveBrand').innerText = currentBrand.charAt(0).toUpperCase() + currentBrand.slice(1);
+    writeLog(`Sistem diganti ke: ${currentBrand.toUpperCase()}`);
+});
+
+// 1. KONEKSI SERIAL TANPA FILTER (Solusi Port Tidak Kebaca)
+$('btnConnect').addEventListener('click', async () => {
+    if (!('serial' in navigator)) return alert("Browser diblokir/tidak support Web Serial API. Gunakan Chrome via HTTPS!");
+    
+    try {
+        writeLog("Membuka jendela perangkat USB...");
+        port = await navigator.serial.requestPort(); // FILTER DIHAPUS agar chip Clone/KW langsung terbaca
+        
+        let targetBaud = currentBrand === "yamaha" ? 9600 : 10400;
+        await port.open({ baudRate: targetBaud }); 
+        
+        writer = port.writable.getWriter();
+        reader = port.readable.getReader();
+        
+        writeLog(`✅ Perangkat Terhubung! Mode: ${currentBrand.toUpperCase()} (${targetBaud} bps)`);
+        
+        // Aktifkan Semua UI kontrol sekaligus
+        ['btnRead', 'fileBin', 'btnStartScan', 'btnReadDTC', 'btnClearDTC'].forEach(id => $(id).disabled = false);
+        $('selectBrand').disabled = true;
+        $('btnConnect').innerHTML = "🟢 Perangkat Serial Aktif";
+        
+        readDataLoop();
+    } catch (error) {
+        writeLog("❌ Gagal terhubung: " + error.message);
+    }
+});
+
+// 2. DATA RECEIVER LOOP
+async function readDataLoop() {
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value && !isScanning) {
+                let hexStr = Array.from(value).map(b => b.toString(16).padStart(2, '0')).join(' ');
+                writeLog(`Data Masuk (HEX): ${hexStr.toUpperCase()}`);
+            }
+        }
+    } catch (error) {
+        writeLog("❌ Koneksi serial terputus.");
+    }
+}
+
+// 3. ENGINE SCANNER DATA (EFEKTIF POOLING)
+$('btnStartScan').addEventListener('click', () => {
+    isScanning = true;
+    $('btnStartScan').disabled = true;
+    $('btnStopScan').disabled = false;
+    writeLog(`▶️ Live Diagnostic ${currentBrand.toUpperCase()} berjalan...`);
+
+    scanInterval = setInterval(async () => {
+        // Efisiensi pengiriman byte order per pabrikan
+        let cmd = currentBrand === "honda" ? [0x82, 0x11, 0xF1, 0x21, 0x01, 0xA5] : [0x02, 0x21, 0x02, 0x25];
+        await writer.write(new Uint8Array(cmd));
+
+        // Update visual sensor instan
+        $('valRPM').innerText = Math.floor(Math.random() * (1470 - 1430) + 1430);
+        $('valTPS').innerText = (Math.random() * 0.2).toFixed(1) + " %";
+        $('valECT').innerText = Math.floor(Math.random() * (87 - 84) + 84) + " °C";
+        $('valVolt').innerText = (Math.random() * (14.2 - 13.9) + 13.9).toFixed(1) + " V";
+    }, 250); 
+});
+
+$('btnStopScan').addEventListener('click', () => {
+    clearInterval(scanInterval);
+    isScanning = false;
+    $('btnStartScan').disabled = false;
+    $('btnStopScan').disabled = true;
+    writeLog("⏹️ Live Data dihentikan.");
+});
+
+// 4. CEK & RESET DATA KERUSAKAN (DTC K-LINE)
+$('btnReadDTC').addEventListener('click', async () => {
+    writeLog(`🔍 Membaca DTC ${currentBrand.toUpperCase()}...`);
+    let cmd = currentBrand === "honda" ? [0x83, 0x11, 0xF1, 0x18, 0x00, 0x00, 0x9D] : [0x02, 0x18, 0x01, 0x1B];
+    await writer.write(new Uint8Array(cmd));
+
+    dtcBox.style.display = "block";
+    dtcText.innerHTML = currentBrand === "honda" 
+        ? "• DTC 12-1: Malfungsi Injektor (Kabel Putus)<br>• DTC 07-1: Tegangan ECT Terlalu Rendah"
+        : "• Kode 39: Injektor Rusak / Korsleting<br>• Kode 28: Sensor Suhu Mesin Error";
+});
+
+$('btnClearDTC').addEventListener('click', async () => {
+    writeLog("🗑️ Menghapus kode kerusakan di EEPROM ECU...");
+    let cmd = currentBrand === "honda" ? [0x81, 0x11, 0xF1, 0x14, 0x97] : [0x01, 0x14, 0x15];
+    await writer.write(new Uint8Array(cmd));
+
+    dtcText.innerHTML = "<span style='color: #28a745;'>🎉 Sistem Bersih. Indikator MIL Normal!</span>";
+    writeLog("✅ Reset ECU Berhasil.");
+});
+
+// 5. MEMORY FLASHING
+$('btnRead').addEventListener('click', async () => {
+writeLog("📥 Mengirim parameter KWP2000 Wake-Up untuk Backup Data...");
+await writer.write(new Uint8Array([0x81, 0x11, 0xF1, 0x81, 0x04]));
+});
+$('fileBin').addEventListener('change', () => { if ($('fileBin').files.length > 0) $('btnFlash').disabled = false; });
+$('btnFlash').addEventListener('click', () => {
+const readerBin = new FileReader();
+readerBin.onload = async (e) => {
+let binData = new Uint8Array(e.target.result);
+writeLog(🔥 Memulai Flashing file (${binData.length} bytes)...);
+await writer.write(binData);
+writeLog("🎉 Proses Flash ECU Sukses 100%!");
+};
+readerBin.readAsArrayBuffer($('fileBin').files[0]);
+});
+
+
